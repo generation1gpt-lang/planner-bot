@@ -490,13 +490,13 @@ function switchTab(tab, el, bnav){
 // ── RENDER TODAY ──
 function renderToday(){
   const today=todayStr();
-  const timed=S.tasks.filter(t=>t.date===today&&t.type==='timed').sort((a,b)=>a.time?.localeCompare(b.time));
+  const timed=S.tasks.filter(t=>t.date===today&&t.type==='timed'&&!t.done).sort((a,b)=>(a.time||'').localeCompare(b.time||''));
   const anytime=S.tasks.filter(t=>t.type==='anytime'&&!t.done);
-  const done=S.tasks.filter(t=>t.date===today&&t.done);
+  const done=S.tasks.filter(t=>t.done&&(t.date===today||(t.type==='anytime')));
   const c=document.getElementById('content');
 
   let html='';
-  if(!timed.length&&!anytime.length){
+  if(!timed.length&&!anytime.length&&!done.length){
     html+=`<div class="empty"><div class="empty-icon">🎯</div><div class="empty-text">День свободен</div><div class="empty-sub">Нажми + чтобы добавить задачу</div></div>`;
   }
   if(timed.length){
@@ -510,12 +510,33 @@ function renderToday(){
     html+=`</div>`;
   }
   if(done.length){
-    html+=`<div class="sec">Выполнено</div><div class="tasks">`;
+    html+=`<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px">
+      <div class="sec" style="padding:0;margin:0">Выполнено (${done.length})</div>
+      <button onclick="clearDone()" style="font-size:12px;font-weight:600;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bg);border-radius:7px;padding:4px 10px;cursor:pointer;font-family:'Inter',sans-serif">🗑 Очистить всё</button>
+    </div>
+    <div class="tasks" id="done-list">`;
     done.forEach(t=>{ html+=taskHTML(t); });
     html+=`</div>`;
   }
   c.innerHTML=html;
   bindTaskEvents();
+}
+
+async function clearDone(){
+  if(!confirm('Удалить все выполненные задачи?')) return;
+  const toDelete=S.tasks.filter(t=>t.done);
+  S.tasks=S.tasks.filter(t=>!t.done);
+  save();
+  // delete from server
+  if(USER_ID){
+    for(const t of toDelete){
+      if(!String(t.id).startsWith('demo')){
+        await fetch(`/api/tasks/${t.id}`,{method:'DELETE'}).catch(()=>{});
+      }
+    }
+  }
+  showToast('🗑 Выполненные удалены');
+  renderToday();
 }
 
 function taskHTML(t){
@@ -816,22 +837,29 @@ async function loadAIPriorities(){
 async function suggestTime(id){
   const task=S.tasks.find(t=>t.id==id);
   if(!task) return;
-  // Find free slots based on existing tasks
   const today=todayStr();
-  const busyTimes=S.tasks.filter(t=>t.date===today&&t.time).map(t=>t.time);
-  const allSlots=['09:00','10:00','11:00','12:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  const busyTimes=new Set(S.tasks.filter(t=>t.date===today&&t.time&&t.id!=id).map(t=>t.time));
+  const allSlots=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00'];
   const now=new Date();
-  const nowStr=`${p2(now.getHours())}:${p2(now.getMinutes())}`;
-  const freeSlots=allSlots.filter(s=>s>nowStr&&!busyTimes.includes(s));
+  const nowMins=now.getHours()*60+now.getMinutes();
+  const freeSlots=allSlots.filter(s=>{
+    const [h,m]=s.split(':').map(Number);
+    return (h*60+m)>nowMins && !busyTimes.has(s);
+  });
   if(!freeSlots.length){ showToast('Нет свободных слотов сегодня'); return; }
-  // Show slot picker
   const slot=freeSlots[0];
-  const picked=confirm(`Поставить «${task.title}» на ${slot}?\n\nСвободные слоты: ${freeSlots.slice(0,4).join(', ')}`);
-  if(!picked) return;
-  task.type='timed'; task.date=today; task.time=slot; save();
+  const next3=freeSlots.slice(0,3).join(', ');
+  if(!confirm(`Поставить «${task.title}» на ${slot}?\n\nДругие варианты: ${next3}`)) return;
+  // update task - remove from anytime, set timed
+  task.type='timed';
+  task.date=today;
+  task.time=slot;
+  save();
   if(USER_ID && !String(id).startsWith('demo')){
-    await fetch(`/api/tasks/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:'timed',task_date:today,task_time:slot})}).catch(()=>{});
+    await fetch(`/api/tasks/${id}`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'timed',task_date:today,task_time:slot})
+    }).catch(()=>{});
   }
   showToast(`✅ Поставлено на ${slot}`);
   renderAI();
