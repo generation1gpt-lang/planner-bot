@@ -38,6 +38,7 @@ async def init_db():
             user_id BIGINT NOT NULL,
             title TEXT NOT NULL,
             note TEXT DEFAULT '',
+            details TEXT DEFAULT '',
             type TEXT DEFAULT 'timed',
             task_date TEXT, task_time TEXT,
             prio TEXT DEFAULT 'med',
@@ -46,6 +47,7 @@ async def init_db():
             ai_generated BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS details TEXT DEFAULT '';
         CREATE TABLE IF NOT EXISTS checklists(
             id SERIAL PRIMARY KEY,
             user_id BIGINT NOT NULL,
@@ -58,6 +60,9 @@ async def init_db():
             done BOOLEAN DEFAULT FALSE
         );
         """)
+
+# pending_detail: {user_id: task_id} — ждём дополнение к задаче
+pending_detail: dict = {}
 
 def open_app_kb():
     return InlineKeyboardMarkup([[
@@ -199,6 +204,31 @@ async def cmd_priorities(msg):
 
 @bot.message_handler(content_types=["voice"])
 async def handle_voice(msg):
+    uid = msg.from_user.id
+    # Check if waiting for detail addition
+    if uid in pending_detail:
+        task_id = pending_detail.pop(uid)
+        wait = await bot.send_message(msg.chat.id, "🎙 Распознаю дополнение...")
+        try:
+            fi = await bot.get_file(msg.voice.file_id)
+            url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fi.file_path}"
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url)
+            tmp = f"/tmp/v_{msg.message_id}.ogg"
+            open(tmp,"wb").write(resp.content)
+            detail_text = await transcribe(tmp)
+            os.remove(tmp)
+            async with pool.acquire() as c:
+                await c.execute("UPDATE tasks SET details=$1 WHERE id=$2 AND user_id=$3", detail_text, task_id, uid)
+            await bot.edit_message_text(
+                f"✅ *Подробности добавлены*\n\n_{detail_text}_",
+                msg.chat.id, wait.message_id, parse_mode="Markdown",
+                reply_markup=open_app_kb())
+        except Exception as e:
+            log.error(e)
+            await bot.edit_message_text("❌ Ошибка. Попробуй ещё раз.", msg.chat.id, wait.message_id)
+        return
+
     wait = await bot.send_message(msg.chat.id, "🎙 Распознаю голосовое...")
     try:
         fi = await bot.get_file(msg.voice.file_id)
@@ -213,10 +243,12 @@ async def handle_voice(msg):
             f"📝 *Распознано:*\n_{text}_\n\n⚙️ Создаю задачу...",
             msg.chat.id, wait.message_id, parse_mode="Markdown")
         task = await parse_task(text)
-        await save_task(msg.from_user.id, task, ai_generated=True)
+        task_id = await save_task(msg.from_user.id, task, ai_generated=True)
         reply = task_confirm_text(task)
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Верно", callback_data="ok"),
+            InlineKeyboardButton("📎 Дополнить", callback_data=f"detail_{task_id}"),
+        ],[
             InlineKeyboardButton("📋 Открыть", web_app=WebAppInfo(url=APP_URL)),
         ]])
         await bot.edit_message_text(reply, msg.chat.id, wait.message_id,
@@ -227,13 +259,26 @@ async def handle_voice(msg):
 
 @bot.message_handler(func=lambda m: m.text and not m.text.startswith("/"))
 async def handle_text(msg):
+    uid = msg.from_user.id
+    # Check if waiting for detail addition
+    if uid in pending_detail:
+        task_id = pending_detail.pop(uid)
+        detail_text = msg.text
+        async with pool.acquire() as c:
+            await c.execute("UPDATE tasks SET details=$1 WHERE id=$2 AND user_id=$3", detail_text, task_id, uid)
+        await bot.send_message(msg.chat.id, f"✅ *Подробности добавлены*\n\n_{detail_text}_",
+            parse_mode="Markdown", reply_markup=open_app_kb())
+        return
+
     wait = await bot.send_message(msg.chat.id, "⚙️ Создаю задачу...")
     try:
         task = await parse_task(msg.text)
-        await save_task(msg.from_user.id, task)
+        task_id = await save_task(msg.from_user.id, task)
         reply = task_confirm_text(task)
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Ок", callback_data="ok"),
+            InlineKeyboardButton("📎 Дополнить", callback_data=f"detail_{task_id}"),
+        ],[
             InlineKeyboardButton("📋 Открыть", web_app=WebAppInfo(url=APP_URL)),
         ]])
         await bot.edit_message_text(reply, msg.chat.id, wait.message_id,
@@ -261,6 +306,15 @@ async def handle_cb(call):
     elif d == "list_today":
         await bot.answer_callback_query(call.id)
         await list_today_for(uid, uid)
+    elif d.startswith("detail_"):
+        task_id = int(d.split("_")[1])
+        pending_detail[uid] = task_id
+        await bot.answer_callback_query(call.id)
+        await bot.send_message(uid,
+            "📎 *Отправь дополнение к задаче*\n\n"
+            "Запиши голосовое или напиши текст — добавлю как подробности.\n"
+            "_Следующее сообщение будет прикреплено к этой задаче._",
+            parse_mode="Markdown")
     elif d.startswith("done_"):
         task_id = int(d.split("_")[1])
         async with pool.acquire() as c:
@@ -269,15 +323,16 @@ async def handle_cb(call):
         await bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
-async def save_task(user_id, task: dict, ai_generated=False):
+async def save_task(user_id, task: dict, ai_generated=False) -> int:
     async with pool.acquire() as c:
-        await c.execute(
-            "INSERT INTO tasks(user_id,title,note,type,task_date,task_time,prio,ai_generated) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        row = await c.fetchrow(
+            "INSERT INTO tasks(user_id,title,note,type,task_date,task_time,prio,ai_generated) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
             user_id, task["title"], task.get("note",""),
             "timed" if task.get("task_date") or task.get("task_time") else "anytime",
             task.get("task_date"), task.get("task_time"),
             task.get("prio","med"), ai_generated
         )
+        return row["id"]
 
 def task_confirm_text(task: dict) -> str:
     prio_e = {"high":"🔴","med":"🟡","low":"🟢"}.get(task.get("prio","med"),"🟡")
@@ -342,6 +397,7 @@ async def api_get_tasks(user_id: int):
                 "items":[{"id":i['id'],"text":i['text'],"done":i['done']} for i in items]})
     return {
         "tasks": [{"id":t['id'],"user_id":t['user_id'],"title":t['title'],"note":t['note'],
+            "details":t.get('details','') if isinstance(t, dict) else (t['details'] if 'details' in t.keys() else ''),
             "type":t['type'],"task_date":t['task_date'],"task_time":t['task_time'],
             "prio":t['prio'],"done":t['done'],"ai_generated":t['ai_generated']} for t in tasks],
         "checklists": checklists
