@@ -111,9 +111,15 @@ async def transcribe(path: str) -> str:
 
 async def parse_task(text: str) -> dict:
     today = date.today().isoformat()
-    prompt = f"""Извлеки задачу из текста. Сегодня {today}.
-Верни строго JSON (без markdown):
-{{"title":"...","note":"...","task_date":"YYYY-MM-DD или null","task_time":"HH:MM или null","prio":"high|med|low"}}
+    now_time = datetime.now().strftime("%H:%M")
+    now_h, now_m = datetime.now().hour, datetime.now().minute
+    prompt = f"""Извлеки задачу. Сегодня {today}, сейчас {now_time}.
+Верни ТОЛЬКО JSON без markdown:
+{{"title":"краткое действие","note":"детали или пустая строка","task_date":"YYYY-MM-DD или null","task_time":"HH:MM или null","prio":"high|med|low"}}
+- "через N минут" → вычисли {now_h}:{now_m:02d} + N минут = точное HH:MM
+- "через час" → +60 минут от сейчас
+- без времени → task_time: null
+- prio high если срочно/важно
 Текст: "{text}"
 """
     r = groq_client.chat.completions.create(
@@ -122,8 +128,11 @@ async def parse_task(text: str) -> dict:
         max_tokens=200,
     )
     raw = r.choices[0].message.content.strip()
+    if "```" in raw:
+        raw = raw.split("```")[1]
+        if raw.startswith("json"): raw = raw[4:]
     try:
-        return json.loads(raw)
+        return json.loads(raw.strip())
     except Exception:
         return {"title": text[:100], "note": "", "task_date": None, "task_time": None, "prio": "med"}
 
@@ -140,7 +149,7 @@ async def ai_insight(user_id: int) -> str:
         return "На сегодня задач нет — добавь что-нибудь! 🌟"
     task_list = "\n".join(f"- {r[0]}{' ('+r[1]+')' if r[1] else ''} [{r[2]}]" for r in rows)
     r = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama3-70b-8192",
         messages=[{"role":"user","content":
             f"Задачи пользователя:\n{task_list}\n\n"
             "Дай короткий (2 предложения) мотивирующий совет по приоритетам на русском."}],
@@ -151,7 +160,7 @@ async def ai_insight(user_id: int) -> str:
 
 async def breakdown_task(title: str, user_id: int) -> list[str]:
     r = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama3-70b-8192",
         messages=[{"role":"user","content":
             f'Разбей задачу "{title}" на 4-5 конкретных шагов. '
             'Верни JSON массив строк (без markdown): ["шаг 1","шаг 2",...]'}],

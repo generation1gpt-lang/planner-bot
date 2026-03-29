@@ -663,10 +663,13 @@ function renderAI(){
   const c=document.getElementById('content');
   c.innerHTML=`<div class="ai-wrap">
 
-    <button class="voice-fab" id="voice-fab-btn" onclick="voiceAdd()">
-      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
-      Добавить голосом
-    </button>
+    <div class="ai-card" style="background:var(--accent-bg);border-color:rgba(10,132,255,0.25)">
+      <div class="ai-card-head">
+        <div class="ai-icon blue">🎙</div>
+        <div class="ai-card-title" style="color:var(--accent)">Голосовое добавление</div>
+      </div>
+      <div class="ai-body">Отправь голосовое сообщение боту прямо в чат — задача появится здесь автоматически через несколько секунд</div>
+    </div>
 
     <div class="ai-card">
       <div class="ai-card-head">
@@ -781,24 +784,92 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
+// ── API SYNC ──
+const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
+const API = '';  // same origin
+
+async function syncFromServer(){
+  if(!USER_ID) return;
+  try {
+    const r = await fetch(`${API}/api/tasks/${USER_ID}`);
+    if(!r.ok) return;
+    const data = await r.json();
+    // merge server tasks into state
+    data.tasks.forEach(t=>{
+      const existing = S.tasks.find(x=>String(x.id)===String(t.id));
+      if(!existing){
+        S.tasks.push({
+          id: String(t.id),
+          title: t.title,
+          note: t.note||'',
+          type: t.type,
+          date: t.task_date,
+          time: t.task_time,
+          prio: t.prio||'med',
+          done: Boolean(t.done),
+          aiGenerated: Boolean(t.ai_generated),
+        });
+      }
+    });
+    // sync checklists
+    if(data.checklists?.length){
+      data.checklists.forEach(cl=>{
+        if(!S.lists.find(x=>x.id===cl.id)) S.lists.push(cl);
+      });
+    }
+    save();
+    switchTab(S.tab);
+  } catch(e){ console.log('sync error',e); }
+}
+
+async function saveTaskToServer(task){
+  if(!USER_ID) return;
+  try {
+    await fetch(`${API}/api/tasks/${USER_ID}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title: task.title, note: task.note,
+        type: task.type, task_date: task.date,
+        task_time: task.time, prio: task.prio,
+      })
+    });
+  } catch(e){}
+}
+
+async function updateTaskOnServer(id, fields){
+  if(!USER_ID) return;
+  try {
+    await fetch(`${API}/api/tasks/${id}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(fields)
+    });
+  } catch(e){}
+}
+
 // ── DEMO DATA ──
 function loadDemo(){
   if(S.tasks.length>0) return;
   const t=todayStr();
   S.tasks=[
-    {id:'1',title:'Встреча с командой',type:'timed',date:t,time:'10:00',note:'Zoom call',prio:'high',done:false,aiGenerated:false},
-    {id:'2',title:'Обед',type:'timed',date:t,time:'13:00',note:'',prio:'low',done:false,aiGenerated:false},
-    {id:'3',title:'Code review',type:'timed',date:t,time:'15:30',note:'PR #42',prio:'med',done:false,aiGenerated:true},
-    {id:'4',title:'Ответить на письма',type:'anytime',date:null,time:null,note:'',prio:'med',done:false,aiGenerated:false},
-    {id:'5',title:'Купить продукты',type:'anytime',date:null,time:null,note:'Молоко, хлеб, яйца',prio:'low',done:false,aiGenerated:false},
+    {id:'demo1',title:'Встреча с командой',type:'timed',date:t,time:'10:00',note:'Zoom call',prio:'high',done:false,aiGenerated:false},
+    {id:'demo2',title:'Обед',type:'timed',date:t,time:'13:00',note:'',prio:'low',done:false,aiGenerated:false},
+    {id:'demo3',title:'Code review',type:'timed',date:t,time:'15:30',note:'PR #42',prio:'med',done:false,aiGenerated:true},
+    {id:'demo4',title:'Ответить на письма',type:'anytime',date:null,time:null,note:'',prio:'med',done:false,aiGenerated:false},
+    {id:'demo5',title:'Купить продукты',type:'anytime',date:null,time:null,note:'Молоко, хлеб, яйца',prio:'low',done:false,aiGenerated:false},
   ];
   save();
 }
 
 // ── INIT ──
-loadDemo();
+if(!USER_ID) loadDemo();
 initHeader();
 renderToday();
+if(USER_ID){
+  syncFromServer();
+  setInterval(syncFromServer, 15000);
+}
 </script>
 </body>
 </html>
