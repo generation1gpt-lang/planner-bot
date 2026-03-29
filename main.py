@@ -117,7 +117,7 @@ async def parse_task(text: str) -> dict:
 Текст: "{text}"
 """
     r = groq_client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[{"role":"user","content":prompt}],
         max_tokens=200,
     )
@@ -140,7 +140,7 @@ async def ai_insight(user_id: int) -> str:
         return "На сегодня задач нет — добавь что-нибудь! 🌟"
     task_list = "\n".join(f"- {r[0]}{' ('+r[1]+')' if r[1] else ''} [{r[2]}]" for r in rows)
     r = groq_client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[{"role":"user","content":
             f"Задачи пользователя:\n{task_list}\n\n"
             "Дай короткий (2 предложения) мотивирующий совет по приоритетам на русском."}],
@@ -151,7 +151,7 @@ async def ai_insight(user_id: int) -> str:
 
 async def breakdown_task(title: str, user_id: int) -> list[str]:
     r = groq_client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[{"role":"user","content":
             f'Разбей задачу "{title}" на 4-5 конкретных шагов. '
             'Верни JSON массив строк (без markdown): ["шаг 1","шаг 2",...]'}],
