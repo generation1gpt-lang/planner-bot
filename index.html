@@ -668,12 +668,27 @@ function renderChecklists(){
     const done=cl.items.filter(i=>i.done).length;
     const pct=cl.items.length?Math.round(done/cl.items.length*100):0;
     html+=`<div class="cl-card">
-      <div class="cl-head"><div class="cl-name">${cl.name}</div><div class="cl-count">${done}/${cl.items.length}</div></div>
+      <div class="cl-head">
+        <div class="cl-name">${cl.name}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="cl-count">${done}/${cl.items.length}</div>
+          <div style="display:flex;gap:4px">
+            <button onclick="renameCL(${cl.id})" style="padding:3px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);font-size:11px;color:var(--text2);cursor:pointer">✏️</button>
+            <button onclick="deleteCL(${cl.id})" style="padding:3px 7px;border-radius:6px;border:1px solid var(--red-bg);background:var(--red-bg);font-size:11px;color:var(--red);cursor:pointer">🗑</button>
+          </div>
+        </div>
+      </div>
       <div class="cl-bar"><div class="cl-fill" style="width:${pct}%"></div></div>
       ${cl.items.map(item=>`
-        <div class="cl-item ${item.done?'done':''}" onclick="toggleCL(${cl.id},${item.id})">
-          <div class="cl-box"></div>
-          <div class="cl-text">${item.text}</div>
+        <div class="cl-item ${item.done?'done':''}" style="justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px;flex:1" onclick="toggleCL(${cl.id},${item.id})">
+            <div class="cl-box"></div>
+            <div class="cl-text">${item.text}</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;margin-left:8px">
+            <button onclick="editCLItem(${cl.id},${item.id})" style="padding:2px 6px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);font-size:10px;color:var(--text3);cursor:pointer">✏️</button>
+            <button onclick="deleteCLItem(${cl.id},${item.id})" style="padding:2px 6px;border-radius:5px;border:1px solid var(--red-bg);background:var(--red-bg);font-size:10px;color:var(--red);cursor:pointer">✕</button>
+          </div>
         </div>`).join('')}
       <button class="cl-add" onclick="addCLItem(${cl.id})">+ Добавить пункт</button>
     </div>`;
@@ -694,6 +709,34 @@ function addCLItem(clId){
   cl.items.push({id:Date.now(),text,done:false});
   save();renderChecklists();
 }
+function editCLItem(clId,itemId){
+  const cl=S.lists.find(c=>c.id===clId);
+  const item=cl?.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const text=prompt('Редактировать пункт:',item.text);
+  if(text===null) return;
+  item.text=text.trim()||item.text;
+  save();renderChecklists();
+}
+function deleteCLItem(clId,itemId){
+  const cl=S.lists.find(c=>c.id===clId);
+  if(!cl) return;
+  cl.items=cl.items.filter(i=>i.id!==itemId);
+  save();renderChecklists();
+}
+function renameCL(clId){
+  const cl=S.lists.find(c=>c.id===clId);
+  if(!cl) return;
+  const name=prompt('Новое название:',cl.name);
+  if(name===null) return;
+  cl.name=name.trim()||cl.name;
+  save();renderChecklists();
+}
+function deleteCL(clId){
+  if(!confirm('Удалить весь чеклист?')) return;
+  S.lists=S.lists.filter(c=>c.id!==clId);
+  save();renderChecklists();
+}
 function addChecklist(){
   const name=prompt('Название чеклиста:');
   if(!name) return;
@@ -707,15 +750,6 @@ function renderAI(){
   const todayT=S.tasks.filter(t=>(t.date===today||t.type==='anytime')&&!t.done);
   const anytime=S.tasks.filter(t=>t.type==='anytime'&&!t.done);
 
-  let insight='На сегодня задач нет. Отличный момент добавить что-то важное!';
-  if(todayT.length){
-    const urgent=todayT.filter(t=>t.prio==='high');
-    const first=todayT.sort((a,b)=>a.time?.localeCompare(b.time))[0];
-    insight=`У тебя ${todayT.length} активных задач.`;
-    if(urgent.length) insight+=` ${urgent.length} высокого приоритета — займись ими первым делом.`;
-    if(first?.time) insight+=` Ближайшая в ${first.time}: «${first.title}».`;
-  }
-
   const c=document.getElementById('content');
   c.innerHTML=`<div class="ai-wrap">
 
@@ -724,64 +758,104 @@ function renderAI(){
         <div class="ai-icon blue">🎙</div>
         <div class="ai-card-title" style="color:var(--accent)">Голосовое добавление</div>
       </div>
-      <div class="ai-body">Отправь голосовое сообщение боту прямо в чат — задача появится здесь автоматически через несколько секунд</div>
+      <div class="ai-body">Отправь голосовое сообщение боту прямо в чат — задача появится здесь автоматически</div>
     </div>
 
-    <div class="ai-card">
+    <div class="ai-card" id="ai-priorities-card">
       <div class="ai-card-head">
         <div class="ai-icon purple">✨</div>
         <div class="ai-card-title">Приоритеты на сегодня</div>
+        <button onclick="loadAIPriorities()" id="ai-prio-btn" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid var(--purple-bg);background:var(--purple-bg);color:var(--purple);font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">Анализировать</button>
       </div>
-      <div class="ai-body">${insight}</div>
+      <div class="ai-body" id="ai-prio-text" style="margin-top:8px">${todayT.length?`У тебя ${todayT.length} задач на сегодня. Нажми «Анализировать» для AI-совета.`:'Задач нет. Добавь что-нибудь!'}</div>
     </div>
 
     <div class="ai-card">
       <div class="ai-card-head">
         <div class="ai-icon blue">🗓</div>
-        <div class="ai-card-title">Предложить время для задач</div>
+        <div class="ai-card-title">Предложить время</div>
       </div>
-      <div class="ai-body">AI найдёт свободные слоты под задачи без времени</div>
-      <div class="ai-chips">
-        ${anytime.length?anytime.slice(0,4).map(t=>`<div class="ai-chip" onclick="suggestTime('${t.id}')">📌 ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3);margin-top:4px">Нет задач без времени</div>`}
+      <div class="ai-body" style="margin-bottom:8px">Нажми на задачу без времени — AI подберёт оптимальный слот</div>
+      <div class="ai-chips" id="ai-time-chips">
+        ${anytime.length?anytime.slice(0,4).map(t=>`<div class="ai-chip" onclick="suggestTime('${t.id}')">📌 ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Нет задач без времени</div>`}
       </div>
     </div>
 
     <div class="ai-card">
       <div class="ai-card-head">
         <div class="ai-icon green">✂️</div>
-        <div class="ai-card-title">Разбить задачу на шаги</div>
+        <div class="ai-card-title">Разбить на шаги</div>
       </div>
-      <div class="ai-body">Выбери задачу — AI создаст чеклист подзадач</div>
-      <div class="ai-chips">
-        ${todayT.length?todayT.slice(0,4).map(t=>`<div class="ai-chip" onclick="breakdownTask('${t.id}')">✂️ ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3);margin-top:4px">Нет задач</div>`}
+      <div class="ai-body" style="margin-bottom:8px">Нажми на задачу — AI создаст чеклист подзадач через Groq</div>
+      <div class="ai-chips" id="ai-breakdown-chips">
+        ${todayT.length?todayT.slice(0,4).map(t=>`<div class="ai-chip" onclick="breakdownTask('${t.id}')">✂️ ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Нет задач</div>`}
       </div>
     </div>
 
   </div>`;
 }
 
-function voiceAdd(){
-  showToast('🎙 Голосовое: отправь голосовое сообщение боту в чат!');
-}
-
-function suggestTime(id){
-  const task=S.tasks.find(t=>t.id==id);
-  if(!task) return;
-  const slots=['09:00','11:00','14:00','16:00','18:00'];
-  const slot=slots[Math.floor(Math.random()*slots.length)];
-  if(confirm(`Поставить "${task.title}" на ${slot}?`)){
-    task.type='timed';task.date=todayStr();task.time=slot;save();
-    showToast(`✅ Поставлено на ${slot}`);renderAI();
+async function loadAIPriorities(){
+  if(!USER_ID){ showToast('Нет подключения к серверу'); return; }
+  const btn=document.getElementById('ai-prio-btn');
+  const text=document.getElementById('ai-prio-text');
+  btn.textContent='⏳ Думаю...';
+  btn.disabled=true;
+  try {
+    const r=await fetch(`/api/ai/insight/${USER_ID}`,{method:'POST'});
+    const data=await r.json();
+    text.textContent=data.insight||'Не удалось получить анализ';
+    btn.textContent='Обновить';
+  } catch(e){
+    text.textContent='Ошибка соединения. Попробуй позже.';
+    btn.textContent='Анализировать';
   }
+  btn.disabled=false;
 }
 
-function breakdownTask(id){
+async function suggestTime(id){
   const task=S.tasks.find(t=>t.id==id);
   if(!task) return;
-  const steps=[`Подготовить: ${task.title.slice(0,20)}`,`Выполнить основную часть`,`Проверить результат`];
-  if(confirm(`AI разобьёт "${task.title}" на ${steps.length} шага. Создать чеклист?`)){
-    S.lists.push({id:Date.now(),name:task.title,items:steps.map((s,i)=>({id:Date.now()+i,text:s,done:false}))});
-    save();showToast('✅ Чеклист создан!');switchTab('checklist',null,'checklist');
+  // Find free slots based on existing tasks
+  const today=todayStr();
+  const busyTimes=S.tasks.filter(t=>t.date===today&&t.time).map(t=>t.time);
+  const allSlots=['09:00','10:00','11:00','12:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  const now=new Date();
+  const nowStr=`${p2(now.getHours())}:${p2(now.getMinutes())}`;
+  const freeSlots=allSlots.filter(s=>s>nowStr&&!busyTimes.includes(s));
+  if(!freeSlots.length){ showToast('Нет свободных слотов сегодня'); return; }
+  // Show slot picker
+  const slot=freeSlots[0];
+  const picked=confirm(`Поставить «${task.title}» на ${slot}?\n\nСвободные слоты: ${freeSlots.slice(0,4).join(', ')}`);
+  if(!picked) return;
+  task.type='timed'; task.date=today; task.time=slot; save();
+  if(USER_ID && !String(id).startsWith('demo')){
+    await fetch(`/api/tasks/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'timed',task_date:today,task_time:slot})}).catch(()=>{});
+  }
+  showToast(`✅ Поставлено на ${slot}`);
+  renderAI();
+}
+
+async function breakdownTask(id){
+  const task=S.tasks.find(t=>t.id==id);
+  if(!task) return;
+  if(!USER_ID){ showToast('Нет подключения к серверу'); return; }
+  showToast('⏳ AI разбивает задачу...');
+  try {
+    const r=await fetch('/api/ai/breakdown',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title:task.title,user_id:USER_ID})});
+    const data=await r.json();
+    const steps=data.steps||[];
+    if(!steps.length){ showToast('Не удалось разбить задачу'); return; }
+    S.lists.push({id:Date.now(),name:task.title,
+      items:steps.map((s,i)=>({id:Date.now()+i,text:s,done:false}))});
+    save();
+    showToast('✅ Чеклист создан!');
+    switchTab('checklist',null,'checklist');
+  } catch(e){
+    showToast('Ошибка. Попробуй снова.');
   }
 }
 
