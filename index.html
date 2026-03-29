@@ -409,7 +409,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     </div>
     <div class="field">
       <div class="field-label">Заметка</div>
-      <input class="field-input" id="e-note" placeholder="Детали..." />
+      <input class="field-input" id="e-note" placeholder="Краткая заметка..." />
+    </div>
+    <div class="field">
+      <div class="field-label">Подробности</div>
+      <textarea class="field-input" id="e-details" placeholder="Дополнительная информация, детали встречи и т.д." style="height:80px;resize:none;line-height:1.5"></textarea>
     </div>
     <button class="save-btn" onclick="updateTask()">Сохранить</button>
   </div>
@@ -547,13 +551,15 @@ function taskHTML(t){
   if(t.prio==='high') tags+=`<span class="tag tag-urgent">🔴 Срочно</span>`;
   if(t.aiGenerated) tags+=`<span class="tag tag-ai">✨ AI</span>`;
   if(t.type==='anytime') tags+=`<span class="tag tag-anytime">○ Без времени</span>`;
+  const hasDetails=t.details&&t.details.trim();
   return `<div class="task ${t.done?'done':''}" data-id="${t.id}" draggable="true">
     <div class="prio ${prioClass}"></div>
     <div class="task-check" onclick="toggleTask('${t.id}')"></div>
-    <div class="task-body" onclick="openEditModal('${t.id}')">
+    <div class="task-body" onclick="openTaskDetail('${t.id}')">
       <div class="task-title">${t.title}</div>
       ${tags?`<div class="task-meta">${tags}</div>`:''}
       ${t.note?`<div class="task-note">${t.note}</div>`:''}
+      ${hasDetails?`<div style="font-size:11px;color:var(--accent);margin-top:3px">📎 Есть подробности</div>`:''}
     </div>
     <div class="task-edit-btn" onclick="openEditModal('${t.id}')">
       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -847,57 +853,117 @@ async function suggestTime(id){
   const task=S.tasks.find(t=>t.id==id);
   if(!task) return;
   const today=todayStr();
-  const busyTimes=new Set(S.tasks.filter(t=>t.date===today&&t.time&&String(t.id)!==String(id)).map(t=>t.time));
-  const allSlots=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00'];
+  const tomorrow=new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+  const tomorrowStr=`${tomorrow.getFullYear()}-${p2(tomorrow.getMonth()+1)}-${p2(tomorrow.getDate())}`;
+
+  const allSlots=['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00','23:30'];
   const now=new Date();
   const nowMins=now.getHours()*60+now.getMinutes();
-  const freeSlots=allSlots.filter(s=>{
-    const [h,m]=s.split(':').map(Number);
-    return (h*60+m)>nowMins && !busyTimes.has(s);
-  });
 
-  // Show beautiful slot picker
+  const busyToday=new Set(S.tasks.filter(t=>t.date===today&&t.time&&String(t.id)!==String(id)).map(t=>t.time));
+  const busyTmrw=new Set(S.tasks.filter(t=>t.date===tomorrowStr&&t.time).map(t=>t.time));
+
+  const todaySlots=allSlots.filter(s=>{ const [h,m]=s.split(':').map(Number); return (h*60+m)>nowMins&&!busyToday.has(s); });
+  const tmrwSlots=allSlots.filter(s=>!busyTmrw.has(s));
+
   const existing=document.getElementById('slot-picker');
   if(existing) existing.remove();
 
+  const tmrwLabel=`${tomorrow.getDate()} ${['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'][tomorrow.getMonth()]}`;
+
   const picker=document.createElement('div');
   picker.id='slot-picker';
-  picker.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:flex-end;justify-content:center';
+  picker.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:flex-end;justify-content:center';
   picker.innerHTML=`
-    <div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 40px;animation:slideUp .22s ease">
+    <div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 40px;animation:slideUp .22s ease;max-height:85vh;overflow-y:auto">
       <div style="width:36px;height:4px;background:var(--bg4);border-radius:2px;margin:0 auto 16px"></div>
       <div style="font-size:15px;font-weight:700;margin-bottom:4px">Выбери время</div>
-      <div style="font-size:13px;color:var(--text3);margin-bottom:16px">«${task.title.slice(0,35)}»</div>
-      ${freeSlots.length===0
-        ? `<div style="text-align:center;padding:20px;color:var(--text3);font-size:14px">На сегодня нет свободных слотов</div>`
-        : `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:260px;overflow-y:auto">
-            ${freeSlots.map(s=>`
-              <div onclick="pickSlot('${id}','${s}')" style="padding:10px 0;border-radius:10px;background:var(--bg3);border:1px solid var(--border);text-align:center;font-size:14px;font-weight:500;cursor:pointer;color:var(--text);transition:all .15s" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg3)';this.style.color='var(--text)'">${s}</div>
-            `).join('')}
-          </div>`
-      }
-      <button onclick="document.getElementById('slot-picker').remove()" style="margin-top:16px;width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text3);font-size:14px;cursor:pointer;font-family:'Inter',sans-serif">Отмена</button>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px">«${task.title.slice(0,40)}»</div>
+
+      ${todaySlots.length>0?`
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Сегодня</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+        ${todaySlots.map(s=>`<div onclick="pickSlot('${id}','${s}','${today}')" style="padding:10px 0;border-radius:10px;background:var(--bg3);border:1px solid var(--border);text-align:center;font-size:14px;font-weight:500;cursor:pointer;color:var(--text)">${s}</div>`).join('')}
+      </div>`:''}
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Завтра, ${tmrwLabel}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+        ${tmrwSlots.map(s=>`<div onclick="pickSlot('${id}','${s}','${tomorrowStr}')" style="padding:10px 0;border-radius:10px;background:var(--bg3);border:1px solid var(--border);text-align:center;font-size:14px;font-weight:500;cursor:pointer;color:var(--text)">${s}</div>`).join('')}
+      </div>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Своё время</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <input type="date" id="custom-slot-date" value="${today}" style="flex:1;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none">
+        <input type="time" id="custom-slot-time" value="" style="flex:1;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none">
+        <button onclick="pickCustomSlot('${id}')" style="padding:10px 14px;border-radius:10px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">OK</button>
+      </div>
+
+      <button onclick="document.getElementById('slot-picker').remove()" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text3);font-size:14px;cursor:pointer;font-family:'Inter',sans-serif">Отмена</button>
     </div>`;
   picker.addEventListener('click', e=>{ if(e.target===picker) picker.remove(); });
   document.body.appendChild(picker);
 }
 
-async function pickSlot(id, slot){
+async function pickCustomSlot(id){
+  const date=document.getElementById('custom-slot-date')?.value;
+  const time=document.getElementById('custom-slot-time')?.value;
+  if(!time){ showToast('Укажи время'); return; }
+  await pickSlot(id, time, date||todayStr());
+}
+
+async function pickSlot(id, slot, date){
   document.getElementById('slot-picker')?.remove();
   const task=S.tasks.find(t=>String(t.id)===String(id));
   if(!task) return;
   task.type='timed';
-  task.date=todayStr();
+  task.date=date||todayStr();
   task.time=slot;
   save();
   if(USER_ID && !String(id).startsWith('demo')){
     await fetch(`/api/tasks/${id}`,{
       method:'PATCH', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:'timed',task_date:todayStr(),task_time:slot})
+      body:JSON.stringify({type:'timed',task_date:task.date,task_time:slot})
     }).catch(()=>{});
   }
   showToast(`✅ Поставлено на ${slot}`);
   renderAI();
+}
+
+// ── TASK DETAIL VIEW ──
+function openTaskDetail(id){
+  const t=S.tasks.find(x=>x.id==id);
+  if(!t) return;
+  const existing=document.getElementById('task-detail');
+  if(existing) existing.remove();
+  const prio={high:'🔴 Высокий',med:'🟡 Средний',low:'🟢 Низкий'}[t.prio]||'🟡 Средний';
+  const sheet=document.createElement('div');
+  sheet.id='task-detail';
+  sheet.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:flex-end;justify-content:center';
+  sheet.innerHTML=`
+    <div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 40px;animation:slideUp .22s ease">
+      <div style="width:36px;height:4px;background:var(--bg4);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px;color:var(--text)">${t.title}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+        ${t.time?`<span style="padding:4px 10px;border-radius:6px;background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:600">⏰ ${t.time}</span>`:''}
+        ${t.date?`<span style="padding:4px 10px;border-radius:6px;background:var(--bg3);color:var(--text2);font-size:12px">📅 ${t.date}</span>`:''}
+        <span style="padding:4px 10px;border-radius:6px;background:var(--bg3);color:var(--text2);font-size:12px">${prio}</span>
+        ${t.aiGenerated?`<span style="padding:4px 10px;border-radius:6px;background:var(--purple-bg);color:var(--purple);font-size:12px;font-weight:600">✨ AI</span>`:''}
+      </div>
+      ${t.details?`
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Подробности</div>
+        <div style="background:var(--bg3);border-radius:12px;padding:12px;font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:14px">${t.details}</div>
+      `:''}
+      ${t.note?`
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Заметка</div>
+        <div style="background:var(--bg3);border-radius:12px;padding:12px;font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:14px">${t.note}</div>
+      `:''}
+      <div style="display:flex;gap:8px">
+        <button onclick="openEditModal('${t.id}');document.getElementById('task-detail').remove()" style="flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">✏️ Редактировать</button>
+        <button onclick="document.getElementById('task-detail').remove()" style="flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text3);font-size:14px;cursor:pointer;font-family:'Inter',sans-serif">Закрыть</button>
+      </div>
+    </div>`;
+  sheet.addEventListener('click', e=>{ if(e.target===sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
 }
 
 async function breakdownTask(id){
@@ -984,15 +1050,14 @@ function openEditModal(id){
   editingId = id;
   document.getElementById('e-title').value = t.title;
   document.getElementById('e-note').value = t.note||'';
+  document.getElementById('e-details').value = t.details||'';
   document.getElementById('e-date').value = t.date||todayStr();
   document.getElementById('e-time').value = t.time||'';
-  // set type
   document.querySelectorAll('.eseg-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.eseg-btn').forEach(b=>{
     if((t.type==='timed'&&b.dataset.type==='timed')||(t.type==='anytime'&&b.dataset.type==='anytime')) b.classList.add('active');
   });
   document.getElementById('e-time-wrap').style.display = t.type==='timed'?'grid':'none';
-  // set prio
   document.querySelectorAll('.eprio-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.prio===t.prio);
   });
@@ -1017,6 +1082,7 @@ async function updateTask(){
   const activePrio = document.querySelector('.eprio-btn.active')?.dataset.prio || t.prio;
   t.title = document.getElementById('e-title').value.trim() || t.title;
   t.note  = document.getElementById('e-note').value.trim();
+  t.details = document.getElementById('e-details').value.trim();
   t.type  = activeType;
   t.date  = activeType==='timed' ? document.getElementById('e-date').value : null;
   t.time  = activeType==='timed' ? document.getElementById('e-time').value||null : null;
@@ -1084,6 +1150,7 @@ async function syncFromServer(){
       if(!existing){
         S.tasks.push({
           id: String(t.id), title: t.title, note: t.note||'',
+          details: t.details||'',
           type: t.type, date: t.task_date, time: t.task_time,
           prio: t.prio||'med', done: Boolean(t.done), aiGenerated: Boolean(t.ai_generated),
         });
