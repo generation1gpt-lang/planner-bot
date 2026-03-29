@@ -266,7 +266,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-/* ── EMPTY STATE ── */
+.task-edit-btn{
+  width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  color:var(--text3);flex-shrink:0;transition:all .15s;cursor:pointer
+}
+.task-edit-btn:active{background:var(--bg3);color:var(--accent)}
 .empty{text-align:center;padding:40px 20px;color:var(--text3)}
 .empty-icon{font-size:36px;margin-bottom:10px}
 .empty-text{font-size:14px;font-weight:500;color:var(--text2);margin-bottom:4px}
@@ -366,6 +370,51 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
 <div class="toast" id="toast"></div>
 
+<!-- EDIT TASK MODAL -->
+<div class="overlay" id="edit-modal" onclick="if(event.target.id==='edit-modal') document.getElementById('edit-modal').classList.remove('open')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="sheet-title" style="margin:0">Редактировать</div>
+      <button onclick="deleteTask()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--red-bg);background:var(--red-bg);color:var(--red);font-size:13px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">🗑 Удалить</button>
+    </div>
+    <div class="field">
+      <div class="field-label">Название</div>
+      <input class="field-input" id="e-title" placeholder="Название задачи" />
+    </div>
+    <div class="field">
+      <div class="field-label">Тип</div>
+      <div class="seg-btns">
+        <button class="seg-btn eseg-btn active" data-type="timed" onclick="setEditType('timed',this)">По времени</button>
+        <button class="seg-btn eseg-btn" data-type="anytime" onclick="setEditType('anytime',this)">Без времени</button>
+      </div>
+    </div>
+    <div id="e-time-wrap" class="field field-row">
+      <div>
+        <div class="field-label">Дата</div>
+        <input class="field-input" type="date" id="e-date" />
+      </div>
+      <div>
+        <div class="field-label">Время</div>
+        <input class="field-input" type="time" id="e-time" />
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">Приоритет</div>
+      <div class="prio-btns">
+        <button class="prio-btn eprio-btn active high" data-prio="high" onclick="setEditPrio('high',this)">🔴 Высокий</button>
+        <button class="prio-btn eprio-btn med" data-prio="med" onclick="setEditPrio('med',this)">🟡 Средний</button>
+        <button class="prio-btn eprio-btn low" data-prio="low" onclick="setEditPrio('low',this)">🟢 Низкий</button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">Заметка</div>
+      <input class="field-input" id="e-note" placeholder="Детали..." />
+    </div>
+    <button class="save-btn" onclick="updateTask()">Сохранить</button>
+  </div>
+</div>
+
 <script>
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.expand(); tg.setHeaderColor?.('#1c1c1e'); }
@@ -404,6 +453,10 @@ function todayStr(){
 }
 function p2(n){return String(n).padStart(2,'0')}
 function nowH(){return new Date().getHours()}
+function nowTimeStr(){
+  const n=new Date();
+  return `${p2(n.getHours())}:${p2(n.getMinutes())}`;
+}
 
 // ── HEADER ──
 function initHeader(){
@@ -475,10 +528,13 @@ function taskHTML(t){
   return `<div class="task ${t.done?'done':''}" data-id="${t.id}" draggable="true">
     <div class="prio ${prioClass}"></div>
     <div class="task-check" onclick="toggleTask('${t.id}')"></div>
-    <div class="task-body">
+    <div class="task-body" onclick="openEditModal('${t.id}')">
       <div class="task-title">${t.title}</div>
       ${tags?`<div class="task-meta">${tags}</div>`:''}
       ${t.note?`<div class="task-note">${t.note}</div>`:''}
+    </div>
+    <div class="task-edit-btn" onclick="openEditModal('${t.id}')">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
     </div>
   </div>`;
 }
@@ -738,10 +794,13 @@ function toggleTask(id){
 // ── MODAL ──
 function openModal(){
   document.getElementById('f-date').value=todayStr();
-  document.getElementById('f-time').value='';
+  document.getElementById('f-time').value=nowTimeStr();
   document.getElementById('f-title').value='';
   document.getElementById('f-note').value='';
   S.newType='timed';S.newPrio='high';
+  document.getElementById('f-time-wrap').style.display='grid';
+  document.querySelectorAll('.seg-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
+  document.querySelectorAll('.prio-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
   document.getElementById('modal').classList.add('open');
   setTimeout(()=>document.getElementById('f-title').focus(),300);
 }
@@ -760,20 +819,93 @@ function setPrio(p,btn){
 function saveTask(){
   const title=document.getElementById('f-title').value.trim();
   if(!title){showToast('Введи название');return;}
-  S.tasks.push({
+  const task={
     id:String(Date.now()),
     title,
     type:S.newType,
     date:S.newType==='timed'?document.getElementById('f-date').value:null,
-    time:S.newType==='timed'?document.getElementById('f-time').value:null,
+    time:S.newType==='timed'?document.getElementById('f-time').value||null:null,
     note:document.getElementById('f-note').value.trim(),
     prio:S.newPrio,
     done:false,
     aiGenerated:false,
-  });
+  };
+  S.tasks.push(task);
   save();
+  if(USER_ID) saveTaskToServer(task);
   document.getElementById('modal').classList.remove('open');
   showToast('✅ Задача добавлена');
+  switchTab(S.tab);
+}
+
+// ── EDIT MODAL ──
+let editingId = null;
+
+function openEditModal(id){
+  const t = S.tasks.find(x=>x.id==id);
+  if(!t) return;
+  editingId = id;
+  document.getElementById('e-title').value = t.title;
+  document.getElementById('e-note').value = t.note||'';
+  document.getElementById('e-date').value = t.date||todayStr();
+  document.getElementById('e-time').value = t.time||'';
+  // set type
+  document.querySelectorAll('.eseg-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.eseg-btn').forEach(b=>{
+    if((t.type==='timed'&&b.dataset.type==='timed')||(t.type==='anytime'&&b.dataset.type==='anytime')) b.classList.add('active');
+  });
+  document.getElementById('e-time-wrap').style.display = t.type==='timed'?'grid':'none';
+  // set prio
+  document.querySelectorAll('.eprio-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.prio===t.prio);
+  });
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function setEditType(type, btn){
+  document.querySelectorAll('.eseg-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('e-time-wrap').style.display = type==='timed'?'grid':'none';
+}
+
+function setEditPrio(p, btn){
+  document.querySelectorAll('.eprio-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function updateTask(){
+  const t = S.tasks.find(x=>x.id==editingId);
+  if(!t) return;
+  const activeType = document.querySelector('.eseg-btn.active')?.dataset.type || t.type;
+  const activePrio = document.querySelector('.eprio-btn.active')?.dataset.prio || t.prio;
+  t.title = document.getElementById('e-title').value.trim() || t.title;
+  t.note  = document.getElementById('e-note').value.trim();
+  t.type  = activeType;
+  t.date  = activeType==='timed' ? document.getElementById('e-date').value : null;
+  t.time  = activeType==='timed' ? document.getElementById('e-time').value||null : null;
+  t.prio  = activePrio;
+  save();
+  if(USER_ID && !String(editingId).startsWith('demo')){
+    await fetch(`/api/tasks/${editingId}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title:t.title,note:t.note,type:t.type,task_date:t.date,task_time:t.time,prio:t.prio})
+    }).catch(()=>{});
+  }
+  document.getElementById('edit-modal').classList.remove('open');
+  showToast('✅ Сохранено');
+  switchTab(S.tab);
+}
+
+async function deleteTask(){
+  if(!confirm('Удалить задачу?')) return;
+  const idx = S.tasks.findIndex(x=>x.id==editingId);
+  if(idx!==-1) S.tasks.splice(idx,1);
+  save();
+  if(USER_ID && !String(editingId).startsWith('demo')){
+    await fetch(`/api/tasks/${editingId}`, {method:'DELETE'}).catch(()=>{});
+  }
+  document.getElementById('edit-modal').classList.remove('open');
+  showToast('🗑 Удалено');
   switchTab(S.tab);
 }
 
