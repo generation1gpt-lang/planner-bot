@@ -74,8 +74,11 @@ def open_app_kb():
 
 # ── SCHEDULER ────────────────────────────────────────────────────────────────
 async def send_reminders():
-    now_date = date.today().isoformat()
-    now_time = datetime.now().strftime("%H:%M")
+    from datetime import timezone, timedelta
+    tz = timezone(timedelta(hours=3))
+    now_dt = datetime.now(tz)
+    now_date = now_dt.date().isoformat()
+    now_time = now_dt.strftime("%H:%M")
     c = db()
     rows = c.execute(
         "SELECT id,user_id,title,note FROM tasks "
