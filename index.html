@@ -440,6 +440,7 @@ let S = {
   newType: 'timed',
   newPrio: 'high',
   dragId: null,
+  aiInsight: localStorage.getItem('aiInsight')||'',
 };
 
 function save(){
@@ -786,9 +787,10 @@ function renderAI(){
       <div class="ai-card-head">
         <div class="ai-icon purple">✨</div>
         <div class="ai-card-title">Приоритеты на сегодня</div>
-        <button onclick="loadAIPriorities()" id="ai-prio-btn" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid var(--purple-bg);background:var(--purple-bg);color:var(--purple);font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">Анализировать</button>
+        <button onclick="loadAIPriorities(false)" id="ai-prio-btn" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid var(--purple-bg);background:var(--purple-bg);color:var(--purple);font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">Анализировать</button>
       </div>
-      <div class="ai-body" id="ai-prio-text" style="margin-top:8px">${todayT.length?`У тебя ${todayT.length} задач на сегодня. Нажми «Анализировать» для AI-совета.`:'Задач нет. Добавь что-нибудь!'}</div>
+      <div class="ai-body" id="ai-prio-text" style="margin-top:8px;line-height:1.6">${S.aiInsight||(todayT.length?`У тебя ${todayT.length} задач на сегодня. Нажми «Анализировать» для AI-совета.`:'Задач нет. Добавь что-нибудь!')}</div>
+      ${S.aiInsight?`<button onclick="resetAIPriorities()" style="margin-top:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--text3);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif">↺ Сбросить</button>`:''}
     </div>
 
     <div class="ai-card">
@@ -796,9 +798,9 @@ function renderAI(){
         <div class="ai-icon blue">🗓</div>
         <div class="ai-card-title">Предложить время</div>
       </div>
-      <div class="ai-body" style="margin-bottom:8px">Нажми на задачу без времени — AI подберёт оптимальный слот</div>
+      <div class="ai-body" style="margin-bottom:8px">Нажми на задачу без времени — подберём свободный слот</div>
       <div class="ai-chips" id="ai-time-chips">
-        ${anytime.length?anytime.slice(0,4).map(t=>`<div class="ai-chip" onclick="suggestTime('${t.id}')">📌 ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Нет задач без времени</div>`}
+        ${anytime.length?anytime.slice(0,4).map(t=>`<div class="ai-chip" onclick="suggestTime('${t.id}')">📌 ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3)">Все задачи уже запланированы</div>`}
       </div>
     </div>
 
@@ -816,7 +818,8 @@ function renderAI(){
   </div>`;
 }
 
-async function loadAIPriorities(){
+async function loadAIPriorities(reset){
+  if(reset){ S.aiInsight=''; localStorage.removeItem('aiInsight'); renderAI(); return; }
   if(!USER_ID){ showToast('Нет подключения к серверу'); return; }
   const btn=document.getElementById('ai-prio-btn');
   const text=document.getElementById('ai-prio-text');
@@ -825,20 +828,26 @@ async function loadAIPriorities(){
   try {
     const r=await fetch(`/api/ai/insight/${USER_ID}`,{method:'POST'});
     const data=await r.json();
-    text.textContent=data.insight||'Не удалось получить анализ';
-    btn.textContent='Обновить';
+    const insight=data.insight||'Не удалось получить анализ';
+    S.aiInsight=insight;
+    localStorage.setItem('aiInsight', insight);
+    // re-render AI tab to show insight with reset button
+    renderAI();
   } catch(e){
-    text.textContent='Ошибка соединения. Попробуй позже.';
-    btn.textContent='Анализировать';
+    if(text) text.textContent='Ошибка соединения. Попробуй позже.';
+    if(btn){ btn.textContent='Анализировать'; btn.disabled=false; }
   }
-  btn.disabled=false;
+}
+
+function resetAIPriorities(){
+  loadAIPriorities(true);
 }
 
 async function suggestTime(id){
   const task=S.tasks.find(t=>t.id==id);
   if(!task) return;
   const today=todayStr();
-  const busyTimes=new Set(S.tasks.filter(t=>t.date===today&&t.time&&t.id!=id).map(t=>t.time));
+  const busyTimes=new Set(S.tasks.filter(t=>t.date===today&&t.time&&String(t.id)!==String(id)).map(t=>t.time));
   const allSlots=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00'];
   const now=new Date();
   const nowMins=now.getHours()*60+now.getMinutes();
@@ -846,19 +855,45 @@ async function suggestTime(id){
     const [h,m]=s.split(':').map(Number);
     return (h*60+m)>nowMins && !busyTimes.has(s);
   });
-  if(!freeSlots.length){ showToast('Нет свободных слотов сегодня'); return; }
-  const slot=freeSlots[0];
-  const next3=freeSlots.slice(0,3).join(', ');
-  if(!confirm(`Поставить «${task.title}» на ${slot}?\n\nДругие варианты: ${next3}`)) return;
-  // update task - remove from anytime, set timed
+
+  // Show beautiful slot picker
+  const existing=document.getElementById('slot-picker');
+  if(existing) existing.remove();
+
+  const picker=document.createElement('div');
+  picker.id='slot-picker';
+  picker.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:flex-end;justify-content:center';
+  picker.innerHTML=`
+    <div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 40px;animation:slideUp .22s ease">
+      <div style="width:36px;height:4px;background:var(--bg4);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">Выбери время</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px">«${task.title.slice(0,35)}»</div>
+      ${freeSlots.length===0
+        ? `<div style="text-align:center;padding:20px;color:var(--text3);font-size:14px">На сегодня нет свободных слотов</div>`
+        : `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:260px;overflow-y:auto">
+            ${freeSlots.map(s=>`
+              <div onclick="pickSlot('${id}','${s}')" style="padding:10px 0;border-radius:10px;background:var(--bg3);border:1px solid var(--border);text-align:center;font-size:14px;font-weight:500;cursor:pointer;color:var(--text);transition:all .15s" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg3)';this.style.color='var(--text)'">${s}</div>
+            `).join('')}
+          </div>`
+      }
+      <button onclick="document.getElementById('slot-picker').remove()" style="margin-top:16px;width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text3);font-size:14px;cursor:pointer;font-family:'Inter',sans-serif">Отмена</button>
+    </div>`;
+  picker.addEventListener('click', e=>{ if(e.target===picker) picker.remove(); });
+  document.body.appendChild(picker);
+}
+
+async function pickSlot(id, slot){
+  document.getElementById('slot-picker')?.remove();
+  const task=S.tasks.find(t=>String(t.id)===String(id));
+  if(!task) return;
   task.type='timed';
-  task.date=today;
+  task.date=todayStr();
   task.time=slot;
   save();
   if(USER_ID && !String(id).startsWith('demo')){
     await fetch(`/api/tasks/${id}`,{
-      method:'PATCH',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:'timed',task_date:today,task_time:slot})
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'timed',task_date:todayStr(),task_time:slot})
     }).catch(()=>{});
   }
   showToast(`✅ Поставлено на ${slot}`);
