@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Planner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cal+Sans&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #1c1c1e;
+  --bg2:      #2c2c2e;
+  --bg3:      #3a3a3c;
+  --bg4:      #48484a;
+  --border:   rgba(255,255,255,0.08);
+  --border2:  rgba(255,255,255,0.14);
+  --text:     #f2f2f7;
+  --text2:    #aeaeb2;
+  --text3:    #636366;
+  --accent:   #0a84ff;
+  --accent-bg:rgba(10,132,255,0.15);
+  --purple:   #bf5af2;
+  --purple-bg:rgba(191,90,242,0.15);
+  --green:    #30d158;
+  --green-bg: rgba(48,209,88,0.15);
+  --red:      #ff453a;
+  --red-bg:   rgba(255,69,58,0.15);
+  --amber:    #ffd60a;
+  --amber-bg: rgba(255,214,10,0.15);
+  --r:        12px;
+  --rl:       16px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;overscroll-behavior:none}
+
+/* ── LAYOUT ── */
+.app{display:flex;flex-direction:column;height:100dvh;max-width:480px;margin:0 auto}
+.content{flex:1;overflow-y:auto;padding-bottom:80px}
+
+/* ── TOPBAR ── */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px 0;position:sticky;top:0;
+  background:rgba(28,28,30,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);z-index:50;
+}
+.topbar-title{font-size:20px;font-weight:700;letter-spacing:-0.5px;color:var(--text)}
+.topbar-date{font-size:12px;color:var(--text3);margin-top:1px}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.icon-btn{
+  width:32px;height:32px;border-radius:8px;border:1px solid var(--border);
+  background:var(--bg2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .15s
+}
+.icon-btn:active{transform:scale(.92);background:var(--bg3)}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:4px;padding:10px 16px 0;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  padding:5px 12px;border-radius:6px;font-size:13px;font-weight:500;
+  color:var(--text3);cursor:pointer;white-space:nowrap;border:none;background:none;
+  transition:all .15s;font-family:'Inter',sans-serif;flex-shrink:0
+}
+.tab.active{background:var(--accent);color:#fff}
+
+/* ── SECTION LABEL ── */
+.sec{padding:16px 16px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3)}
+
+/* ── TASK CARDS ── */
+.tasks{padding:0 12px;display:flex;flex-direction:column;gap:4px}
+.task{
+  display:flex;align-items:flex-start;gap:10px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--r);padding:10px 12px;
+  cursor:pointer;transition:all .15s;position:relative;
+  -webkit-user-select:none;user-select:none
+}
+.task:active{transform:scale(.98);background:var(--bg2)}
+.task.done{opacity:.45}
+.task.dragging{opacity:.3;transform:scale(.96)}
+.task.drag-over{border-color:var(--accent);background:var(--accent-bg)}
+
+.task-check{
+  width:18px;height:18px;border-radius:5px;
+  border:1.5px solid var(--border2);flex-shrink:0;margin-top:1px;
+  display:flex;align-items:center;justify-content:center;transition:all .2s
+}
+.task.done .task-check{background:var(--green);border-color:var(--green)}
+.task.done .task-check::after{content:'✓';font-size:11px;color:#fff;font-weight:700}
+
+.task-body{flex:1;min-width:0}
+.task-title{font-size:14px;font-weight:500;color:var(--text);line-height:1.4}
+.task.done .task-title{text-decoration:line-through;color:var(--text3)}
+.task-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;align-items:center}
+.tag{
+  font-size:11px;font-weight:500;padding:2px 7px;border-radius:4px;
+  display:inline-flex;align-items:center;gap:3px
+}
+.tag-time{background:var(--accent-bg);color:var(--accent)}
+.tag-urgent{background:var(--red-bg);color:var(--red)}
+.tag-ai{background:var(--purple-bg);color:var(--purple)}
+.tag-anytime{background:var(--bg3);color:var(--text3)}
+.task-note{font-size:12px;color:var(--text3);margin-top:3px;line-height:1.4}
+
+/* ── PRIORITY DOT ── */
+.prio{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:6px}
+.prio.high{background:var(--red)}
+.prio.med{background:var(--amber)}
+.prio.low{background:var(--green)}
+
+/* ── TIMELINE ── */
+.timeline{padding:0 12px}
+.tl-hour{display:flex;gap:10px;min-height:52px;position:relative}
+.tl-hour:not(:last-child)::after{
+  content:'';position:absolute;left:28px;top:24px;bottom:-4px;
+  width:1px;background:var(--border);pointer-events:none
+}
+.tl-label{width:28px;font-size:11px;color:var(--text3);padding-top:4px;flex-shrink:0;text-align:right;font-weight:500}
+.tl-slot{flex:1;padding:2px 0;display:flex;flex-direction:column;gap:4px}
+.tl-empty{min-height:40px;border-radius:var(--r);border:1px dashed transparent;transition:all .15s}
+.tl-empty.drag-over{border-color:var(--accent);background:var(--accent-bg)}
+
+/* ── NOW LINE ── */
+.now-line{
+  display:flex;align-items:center;gap:6px;padding:4px 12px;
+  color:var(--red);font-size:11px;font-weight:600
+}
+.now-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
+.now-bar{flex:1;height:1px;background:var(--red);opacity:.4}
+
+/* ── CALENDAR ── */
+.cal-wrap{padding:0 12px}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:0 4px}
+.cal-month{font-size:16px;font-weight:700}
+.cal-arrow{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text2)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-dow{text-align:center;font-size:10px;font-weight:600;color:var(--text3);padding:4px 0;text-transform:uppercase;letter-spacing:.5px}
+.cal-day{
+  aspect-ratio:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;border-radius:8px;cursor:pointer;
+  font-size:13px;font-weight:500;position:relative;transition:all .12s
+}
+.cal-day:hover{background:var(--bg2)}
+.cal-day.today{background:var(--text);color:#fff;font-weight:700}
+.cal-day.selected:not(.today){background:var(--accent-bg);color:var(--accent);font-weight:600}
+.cal-day.other{color:var(--text3)}
+.cal-dot{width:4px;height:4px;border-radius:50%;background:var(--accent);position:absolute;bottom:3px}
+.cal-day.today .cal-dot{background:#fff}
+
+.cal-day-header{font-size:16px;font-weight:700;padding:16px 12px 8px}
+.cal-day-list{padding:0 12px;display:flex;flex-direction:column;gap:4px}
+.cal-empty{padding:12px;font-size:13px;color:var(--text3)}
+
+/* ── AI VIEW ── */
+.ai-wrap{padding:0 12px}
+.ai-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--rl);padding:14px;margin-bottom:10px
+}
+.ai-card-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ai-icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.ai-icon.purple{background:var(--purple-bg)}
+.ai-icon.blue{background:var(--accent-bg)}
+.ai-icon.green{background:var(--green-bg)}
+.ai-card-title{font-size:14px;font-weight:600;color:var(--text)}
+.ai-body{font-size:13px;color:var(--text2);line-height:1.6}
+.ai-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ai-chip{
+  padding:5px 10px;border-radius:6px;background:var(--bg);border:1px solid var(--border);
+  font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif
+}
+.ai-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.ai-chip:active{transform:scale(.96)}
+
+.voice-fab{
+  width:100%;padding:13px;border-radius:var(--r);
+  background:var(--accent);border:none;color:#fff;
+  font-size:14px;font-weight:600;cursor:pointer;
+  font-family:'Inter',sans-serif;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px
+}
+.voice-fab:active{transform:scale(.97);opacity:.88}
+.voice-fab.recording{background:var(--red);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.75}}
+
+/* ── CHECKLISTS ── */
+.cl-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:14px;margin-bottom:10px}
+.cl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.cl-name{font-size:14px;font-weight:600}
+.cl-count{font-size:12px;color:var(--text3)}
+.cl-bar{height:3px;background:var(--bg4);border-radius:3px;margin-bottom:12px;overflow:hidden}
+.cl-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:3px;transition:width .4s}
+.cl-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.cl-item:last-of-type{border-bottom:none}
+.cl-box{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--border2);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.cl-item.done .cl-box{background:var(--accent);border-color:var(--accent)}
+.cl-item.done .cl-box::after{content:'✓';font-size:10px;color:#fff;font-weight:700}
+.cl-item.done .cl-text{text-decoration:line-through;color:var(--text3)}
+.cl-text{font-size:13px}
+.cl-add{width:100%;padding:7px;border-radius:7px;border:1px dashed var(--border2);background:none;font-size:12px;color:var(--text3);cursor:pointer;margin-top:8px;font-family:'Inter',sans-serif;transition:all .15s}
+.cl-add:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── BOTTOM NAV ── */
+.bottomnav{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:480px;
+  background:rgba(28,28,30,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-top:1px solid var(--border);
+  display:flex;padding:8px 8px 20px;gap:4px;z-index:50
+}
+.bnav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:6px 4px;border-radius:8px;cursor:pointer;transition:all .15s;border:none;background:none;
+}
+.bnav-item.active .bnav-label{color:var(--accent)}
+.bnav-item.active .bnav-icon{color:var(--accent)}
+.bnav-icon{font-size:20px;color:var(--text3)}
+.bnav-label{font-size:10px;font-weight:500;color:var(--text3)}
+.bnav-add{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:4px;cursor:pointer;border:none;background:none
+}
+.bnav-add-circle{
+  width:40px;height:40px;border-radius:12px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;
+  transition:all .15s
+}
+.bnav-add-circle:active{transform:scale(.92)}
+
+/* ── MODAL ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(4px);z-index:100;align-items:flex-end;justify-content:center}
+.overlay.open{display:flex}
+.sheet{
+  background:var(--bg2);border-radius:18px 18px 0 0;width:100%;max-width:480px;
+  padding:20px 16px 40px;animation:up .22s ease
+}
+@keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-handle{width:36px;height:4px;background:var(--bg4);border-radius:2px;margin:0 auto 18px}
+.sheet-title{font-size:17px;font-weight:700;margin-bottom:16px}
+.field{margin-bottom:14px}
+.field-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:5px}
+.field-input{
+  width:100%;padding:10px 12px;border-radius:var(--r);
+  border:1px solid var(--border2);background:var(--bg2);
+  color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;
+  transition:border-color .15s
+}
+.field-input:focus{border-color:var(--accent);background:var(--bg)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg-btns{display:flex;background:var(--bg2);border-radius:8px;padding:3px;gap:2px}
+.seg-btn{flex:1;padding:6px;border-radius:6px;border:none;background:none;font-size:12px;font-weight:500;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s}
+.seg-btn.active{background:var(--bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.prio-btns{display:flex;gap:6px}
+.prio-btn{flex:1;padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg2);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s;color:var(--text2)}
+.prio-btn.active.high{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.prio-btn.active.med{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}
+.prio-btn.active.low{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.save-btn{width:100%;padding:13px;margin-top:8px;border-radius:var(--r);border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s}
+.save-btn:active{transform:scale(.97);opacity:.88}
+
+/* ── TOAST ── */
+.toast{
+  position:fixed;bottom:92px;left:50%;transform:translateX(-50%) translateY(10px);
+  background:var(--bg3);color:var(--text);border:1px solid var(--border2);padding:9px 16px;border-radius:10px;
+  font-size:13px;font-weight:500;opacity:0;transition:all .25s;z-index:200;white-space:nowrap
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty-icon{font-size:36px;margin-bottom:10px}
+.empty-text{font-size:14px;font-weight:500;color:var(--text2);margin-bottom:4px}
+.empty-sub{font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbar-title">Сегодня</div>
+      <div class="topbar-date" id="topbar-date"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="icon-btn" onclick="openModal()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" onclick="switchTab('today',this)">Сегодня</button>
+    <button class="tab" onclick="switchTab('timeline',this)">Таймлайн</button>
+    <button class="tab" onclick="switchTab('calendar',this)">Календарь</button>
+    <button class="tab" onclick="switchTab('checklist',this)">Чеклисты</button>
+    <button class="tab" onclick="switchTab('ai',this)">AI</button>
+  </div>
+
+  <div class="content" id="content"></div>
+</div>
+
+<!-- BOTTOM NAV -->
+<div class="bottomnav">
+  <button class="bnav-item active" id="bn-today" onclick="switchTab('today', null, 'today')">
+    <div class="bnav-icon">☀️</div>
+    <div class="bnav-label">Сегодня</div>
+  </button>
+  <button class="bnav-item" id="bn-calendar" onclick="switchTab('calendar', null, 'calendar')">
+    <div class="bnav-icon">📅</div>
+    <div class="bnav-label">Календарь</div>
+  </button>
+  <button class="bnav-add" onclick="openModal()">
+    <div class="bnav-add-circle">+</div>
+    <div class="bnav-label" style="font-size:10px;color:var(--text3)">Задача</div>
+  </button>
+  <button class="bnav-item" id="bn-checklist" onclick="switchTab('checklist', null, 'checklist')">
+    <div class="bnav-icon">✅</div>
+    <div class="bnav-label">Чеклист</div>
+  </button>
+  <button class="bnav-item" id="bn-ai" onclick="switchTab('ai', null, 'ai')">
+    <div class="bnav-icon">✨</div>
+    <div class="bnav-label">AI</div>
+  </button>
+</div>
+
+<!-- ADD TASK MODAL -->
+<div class="overlay" id="modal" onclick="closeOutside(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Новая задача</div>
+    <div class="field">
+      <div class="field-label">Название</div>
+      <input class="field-input" id="f-title" placeholder="Что нужно сделать?" />
+    </div>
+    <div class="field">
+      <div class="field-label">Тип</div>
+      <div class="seg-btns">
+        <button class="seg-btn active" onclick="setTaskType('timed',this)">По времени</button>
+        <button class="seg-btn" onclick="setTaskType('anytime',this)">Без времени</button>
+      </div>
+    </div>
+    <div id="f-time-wrap" class="field field-row">
+      <div>
+        <div class="field-label">Дата</div>
+        <input class="field-input" type="date" id="f-date" />
+      </div>
+      <div>
+        <div class="field-label">Время</div>
+        <input class="field-input" type="time" id="f-time" />
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">Приоритет</div>
+      <div class="prio-btns">
+        <button class="prio-btn active high" onclick="setPrio('high',this)">🔴 Высокий</button>
+        <button class="prio-btn med" onclick="setPrio('med',this)">🟡 Средний</button>
+        <button class="prio-btn low" onclick="setPrio('low',this)">🟢 Низкий</button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">Заметка</div>
+      <input class="field-input" id="f-note" placeholder="Детали..." />
+    </div>
+    <button class="save-btn" onclick="saveTask()">Добавить</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.expand(); tg.setHeaderColor?.('#1c1c1e'); }
+
+// ── STATE ──
+let S = {
+  tasks: JSON.parse(localStorage.getItem('ptasks') || '[]'),
+  lists: JSON.parse(localStorage.getItem('plists') || JSON.stringify([
+    {id:1, name:'Утренняя рутина', items:[
+      {id:11,text:'Зарядка 15 минут',done:false},
+      {id:12,text:'Холодный душ',done:false},
+      {id:13,text:'Чтение 20 минут',done:false},
+    ]},
+    {id:2, name:'Рабочие задачи', items:[
+      {id:21,text:'Проверить почту',done:false},
+      {id:22,text:'Daily встреча',done:false},
+    ]},
+  ])),
+  tab: 'today',
+  calYear: new Date().getFullYear(),
+  calMonth: new Date().getMonth(),
+  calSelected: todayStr(),
+  newType: 'timed',
+  newPrio: 'high',
+  dragId: null,
+};
+
+function save(){
+  localStorage.setItem('ptasks', JSON.stringify(S.tasks));
+  localStorage.setItem('plists', JSON.stringify(S.lists));
+}
+
+function todayStr(){
+  const n=new Date();
+  return `${n.getFullYear()}-${p2(n.getMonth()+1)}-${p2(n.getDate())}`;
+}
+function p2(n){return String(n).padStart(2,'0')}
+function nowH(){return new Date().getHours()}
+
+// ── HEADER ──
+function initHeader(){
+  const n=new Date();
+  const days=['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+  const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  document.getElementById('topbar-date').textContent=`${days[n.getDay()]}, ${n.getDate()} ${months[n.getMonth()]}`;
+}
+
+// ── TABS ──
+function switchTab(tab, el, bnav){
+  S.tab=tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  else {
+    document.querySelectorAll('.tab').forEach(t=>{
+      if(t.textContent.toLowerCase().includes({today:'сегодня',calendar:'кален',checklist:'чекл',ai:'ai',timeline:'тайм'}[tab]||tab)) t.classList.add('active');
+    });
+  }
+  document.querySelectorAll('.bnav-item').forEach(b=>b.classList.remove('active'));
+  if(bnav) document.getElementById('bn-'+bnav)?.classList.add('active');
+
+  const titles={today:'Сегодня',timeline:'Таймлайн',calendar:'Календарь',checklist:'Чеклисты',ai:'AI Ассистент'};
+  document.getElementById('topbar-title').textContent=titles[tab]||tab;
+
+  const c=document.getElementById('content');
+  c.innerHTML='';
+  ({today:renderToday,timeline:renderTimeline,calendar:renderCalendar,checklist:renderChecklists,ai:renderAI})[tab]?.();
+}
+
+// ── RENDER TODAY ──
+function renderToday(){
+  const today=todayStr();
+  const timed=S.tasks.filter(t=>t.date===today&&t.type==='timed').sort((a,b)=>a.time?.localeCompare(b.time));
+  const anytime=S.tasks.filter(t=>t.type==='anytime'&&!t.done);
+  const done=S.tasks.filter(t=>t.date===today&&t.done);
+  const c=document.getElementById('content');
+
+  let html='';
+  if(!timed.length&&!anytime.length){
+    html+=`<div class="empty"><div class="empty-icon">🎯</div><div class="empty-text">День свободен</div><div class="empty-sub">Нажми + чтобы добавить задачу</div></div>`;
+  }
+  if(timed.length){
+    html+=`<div class="sec">По времени</div><div class="tasks">`;
+    timed.forEach(t=>{ html+=taskHTML(t); });
+    html+=`</div>`;
+  }
+  if(anytime.length){
+    html+=`<div class="sec">Без времени</div><div class="tasks">`;
+    anytime.forEach(t=>{ html+=taskHTML(t); });
+    html+=`</div>`;
+  }
+  if(done.length){
+    html+=`<div class="sec">Выполнено</div><div class="tasks">`;
+    done.forEach(t=>{ html+=taskHTML(t); });
+    html+=`</div>`;
+  }
+  c.innerHTML=html;
+  bindTaskEvents();
+}
+
+function taskHTML(t){
+  const prioClass={high:'high',med:'med',low:'low'}[t.prio]||'low';
+  let tags='';
+  if(t.time) tags+=`<span class="tag tag-time">⏰ ${t.time}</span>`;
+  if(t.prio==='high') tags+=`<span class="tag tag-urgent">🔴 Срочно</span>`;
+  if(t.aiGenerated) tags+=`<span class="tag tag-ai">✨ AI</span>`;
+  if(t.type==='anytime') tags+=`<span class="tag tag-anytime">○ Без времени</span>`;
+  return `<div class="task ${t.done?'done':''}" data-id="${t.id}" draggable="true">
+    <div class="prio ${prioClass}"></div>
+    <div class="task-check" onclick="toggleTask('${t.id}')"></div>
+    <div class="task-body">
+      <div class="task-title">${t.title}</div>
+      ${tags?`<div class="task-meta">${tags}</div>`:''}
+      ${t.note?`<div class="task-note">${t.note}</div>`:''}
+    </div>
+  </div>`;
+}
+
+function bindTaskEvents(){
+  document.querySelectorAll('.task[draggable]').forEach(el=>{
+    el.addEventListener('dragstart',e=>{
+      S.dragId=el.dataset.id;
+      setTimeout(()=>el.classList.add('dragging'),0);
+    });
+    el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+  });
+  document.querySelectorAll('.tl-slot,.tl-empty').forEach(slot=>{
+    slot.addEventListener('dragover',e=>{e.preventDefault();slot.classList.add('drag-over')});
+    slot.addEventListener('dragleave',()=>slot.classList.remove('drag-over'));
+    slot.addEventListener('drop',e=>{
+      e.preventDefault();slot.classList.remove('drag-over');
+      const hour=slot.dataset.hour;
+      const date=slot.dataset.date||todayStr();
+      if(!S.dragId||!hour) return;
+      const task=S.tasks.find(t=>t.id==S.dragId);
+      if(task){task.date=date;task.time=`${p2(hour)}:00`;task.type='timed';save();showToast(`Перенесено на ${hour}:00`);renderTimeline();}
+    });
+  });
+}
+
+// ── RENDER TIMELINE ──
+function renderTimeline(){
+  const today=todayStr();
+  const todayTasks=S.tasks.filter(t=>t.date===today&&t.type==='timed');
+  const h=nowH();
+  const c=document.getElementById('content');
+  let html=`<div class="sec">Таймлайн — сегодня</div><div class="timeline">`;
+  for(let hr=6;hr<=23;hr++){
+    const tasks=todayTasks.filter(t=>t.time&&parseInt(t.time)===hr);
+    if(hr===h){
+      html+=`<div class="now-line"><div class="now-dot"></div><span>Сейчас ${hr}:${p2(new Date().getMinutes())}</span><div class="now-bar"></div></div>`;
+    }
+    html+=`<div class="tl-hour">
+      <div class="tl-label">${hr}</div>
+      <div class="tl-slot" data-hour="${hr}" data-date="${today}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropOnSlot(event,${hr},'${today}')">
+        ${tasks.length?tasks.map(t=>taskHTML(t)).join(''):`<div class="tl-empty" data-hour="${hr}" data-date="${today}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropOnSlot(event,${hr},'${today}')"></div>`}
+      </div>
+    </div>`;
+  }
+  html+=`</div>`;
+  c.innerHTML=html;
+  bindTaskEvents();
+  // scroll to now
+  setTimeout(()=>{
+    const idx=h-6;
+    const rows=document.querySelectorAll('.tl-hour');
+    rows[idx]?.scrollIntoView({behavior:'smooth',block:'center'});
+  },100);
+}
+
+function dropOnSlot(e,hour,date){
+  e.preventDefault();
+  document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  if(!S.dragId) return;
+  const task=S.tasks.find(t=>t.id==S.dragId);
+  if(task){task.date=date;task.time=`${p2(hour)}:00`;task.type='timed';save();showToast(`Перенесено на ${hour}:00`);renderTimeline();}
+}
+
+// ── RENDER CALENDAR ──
+function renderCalendar(){
+  const c=document.getElementById('content');
+  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const dows=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+  const y=S.calYear,m=S.calMonth;
+  const first=new Date(y,m,1);
+  let dow=first.getDay(); if(dow===0) dow=7;
+  const dim=new Date(y,m+1,0).getDate();
+  const today=todayStr();
+
+  let html=`<div class="cal-wrap">
+    <div class="cal-nav">
+      <div class="cal-arrow" onclick="calNav(-1)">‹</div>
+      <div class="cal-month">${months[m]} ${y}</div>
+      <div class="cal-arrow" onclick="calNav(1)">›</div>
+    </div>
+    <div class="cal-grid">
+      ${dows.map(d=>`<div class="cal-dow">${d}</div>`).join('')}`;
+
+  for(let i=1;i<dow;i++){
+    const pd=new Date(y,m,1-dow+i);
+    html+=`<div class="cal-day other">${pd.getDate()}</div>`;
+  }
+  for(let d=1;d<=dim;d++){
+    const ds=`${y}-${p2(m+1)}-${p2(d)}`;
+    const isToday=ds===today;
+    const isSel=ds===S.calSelected;
+    const hasTasks=S.tasks.some(t=>t.date===ds);
+    html+=`<div class="cal-day ${isToday?'today':''} ${isSel&&!isToday?'selected':''}" onclick="calSelect('${ds}')">
+      ${d}${hasTasks?'<div class="cal-dot"></div>':''}
+    </div>`;
+  }
+  html+=`</div>`;
+
+  const selTasks=S.tasks.filter(t=>t.date===S.calSelected).sort((a,b)=>a.time?.localeCompare(b.time));
+  html+=`<div class="cal-day-header">${fmtDay(S.calSelected)}</div>`;
+  html+=`<div class="cal-day-list">`;
+  if(selTasks.length) selTasks.forEach(t=>{html+=taskHTML(t);});
+  else html+=`<div class="cal-empty">Нет задач на этот день</div>`;
+  html+=`</div></div>`;
+
+  c.innerHTML=html;
+  bindTaskEvents();
+}
+
+function fmtDay(ds){
+  const d=new Date(ds+'T00:00:00');
+  const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function calNav(dir){
+  S.calMonth+=dir;
+  if(S.calMonth<0){S.calMonth=11;S.calYear--;}
+  if(S.calMonth>11){S.calMonth=0;S.calYear++;}
+  renderCalendar();
+}
+
+function calSelect(ds){S.calSelected=ds;renderCalendar();}
+
+// ── RENDER CHECKLISTS ──
+function renderChecklists(){
+  const c=document.getElementById('content');
+  let html=`<div style="padding:0 12px">`;
+  S.lists.forEach(cl=>{
+    const done=cl.items.filter(i=>i.done).length;
+    const pct=cl.items.length?Math.round(done/cl.items.length*100):0;
+    html+=`<div class="cl-card">
+      <div class="cl-head"><div class="cl-name">${cl.name}</div><div class="cl-count">${done}/${cl.items.length}</div></div>
+      <div class="cl-bar"><div class="cl-fill" style="width:${pct}%"></div></div>
+      ${cl.items.map(item=>`
+        <div class="cl-item ${item.done?'done':''}" onclick="toggleCL(${cl.id},${item.id})">
+          <div class="cl-box"></div>
+          <div class="cl-text">${item.text}</div>
+        </div>`).join('')}
+      <button class="cl-add" onclick="addCLItem(${cl.id})">+ Добавить пункт</button>
+    </div>`;
+  });
+  html+=`<button class="cl-add" style="width:100%;margin-bottom:16px" onclick="addChecklist()">+ Новый чеклист</button></div>`;
+  c.innerHTML=html;
+}
+
+function toggleCL(clId,itemId){
+  const cl=S.lists.find(c=>c.id===clId);
+  const item=cl?.items.find(i=>i.id===itemId);
+  if(item){item.done=!item.done;save();renderChecklists();}
+}
+function addCLItem(clId){
+  const text=prompt('Новый пункт:');
+  if(!text) return;
+  const cl=S.lists.find(c=>c.id===clId);
+  cl.items.push({id:Date.now(),text,done:false});
+  save();renderChecklists();
+}
+function addChecklist(){
+  const name=prompt('Название чеклиста:');
+  if(!name) return;
+  S.lists.push({id:Date.now(),name,items:[]});
+  save();renderChecklists();
+}
+
+// ── RENDER AI ──
+function renderAI(){
+  const today=todayStr();
+  const todayT=S.tasks.filter(t=>(t.date===today||t.type==='anytime')&&!t.done);
+  const anytime=S.tasks.filter(t=>t.type==='anytime'&&!t.done);
+
+  let insight='На сегодня задач нет. Отличный момент добавить что-то важное!';
+  if(todayT.length){
+    const urgent=todayT.filter(t=>t.prio==='high');
+    const first=todayT.sort((a,b)=>a.time?.localeCompare(b.time))[0];
+    insight=`У тебя ${todayT.length} активных задач.`;
+    if(urgent.length) insight+=` ${urgent.length} высокого приоритета — займись ими первым делом.`;
+    if(first?.time) insight+=` Ближайшая в ${first.time}: «${first.title}».`;
+  }
+
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="ai-wrap">
+
+    <button class="voice-fab" id="voice-fab-btn" onclick="voiceAdd()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+      Добавить голосом
+    </button>
+
+    <div class="ai-card">
+      <div class="ai-card-head">
+        <div class="ai-icon purple">✨</div>
+        <div class="ai-card-title">Приоритеты на сегодня</div>
+      </div>
+      <div class="ai-body">${insight}</div>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-card-head">
+        <div class="ai-icon blue">🗓</div>
+        <div class="ai-card-title">Предложить время для задач</div>
+      </div>
+      <div class="ai-body">AI найдёт свободные слоты под задачи без времени</div>
+      <div class="ai-chips">
+        ${anytime.length?anytime.slice(0,4).map(t=>`<div class="ai-chip" onclick="suggestTime('${t.id}')">📌 ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3);margin-top:4px">Нет задач без времени</div>`}
+      </div>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-card-head">
+        <div class="ai-icon green">✂️</div>
+        <div class="ai-card-title">Разбить задачу на шаги</div>
+      </div>
+      <div class="ai-body">Выбери задачу — AI создаст чеклист подзадач</div>
+      <div class="ai-chips">
+        ${todayT.length?todayT.slice(0,4).map(t=>`<div class="ai-chip" onclick="breakdownTask('${t.id}')">✂️ ${t.title.slice(0,22)}</div>`).join(''):`<div style="font-size:12px;color:var(--text3);margin-top:4px">Нет задач</div>`}
+      </div>
+    </div>
+
+  </div>`;
+}
+
+function voiceAdd(){
+  showToast('🎙 Голосовое: отправь голосовое сообщение боту в чат!');
+}
+
+function suggestTime(id){
+  const task=S.tasks.find(t=>t.id==id);
+  if(!task) return;
+  const slots=['09:00','11:00','14:00','16:00','18:00'];
+  const slot=slots[Math.floor(Math.random()*slots.length)];
+  if(confirm(`Поставить "${task.title}" на ${slot}?`)){
+    task.type='timed';task.date=todayStr();task.time=slot;save();
+    showToast(`✅ Поставлено на ${slot}`);renderAI();
+  }
+}
+
+function breakdownTask(id){
+  const task=S.tasks.find(t=>t.id==id);
+  if(!task) return;
+  const steps=[`Подготовить: ${task.title.slice(0,20)}`,`Выполнить основную часть`,`Проверить результат`];
+  if(confirm(`AI разобьёт "${task.title}" на ${steps.length} шага. Создать чеклист?`)){
+    S.lists.push({id:Date.now(),name:task.title,items:steps.map((s,i)=>({id:Date.now()+i,text:s,done:false}))});
+    save();showToast('✅ Чеклист создан!');switchTab('checklist',null,'checklist');
+  }
+}
+
+// ── TASK ACTIONS ──
+function toggleTask(id){
+  const t=S.tasks.find(t=>t.id==id);
+  if(t){t.done=!t.done;save();S.tab==='today'?renderToday():S.tab==='timeline'?renderTimeline():renderCalendar();}
+}
+
+// ── MODAL ──
+function openModal(){
+  document.getElementById('f-date').value=todayStr();
+  document.getElementById('f-time').value='';
+  document.getElementById('f-title').value='';
+  document.getElementById('f-note').value='';
+  S.newType='timed';S.newPrio='high';
+  document.getElementById('modal').classList.add('open');
+  setTimeout(()=>document.getElementById('f-title').focus(),300);
+}
+function closeOutside(e){if(e.target.id==='modal') document.getElementById('modal').classList.remove('open');}
+function setTaskType(type,btn){
+  S.newType=type;
+  document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('f-time-wrap').style.display=type==='timed'?'grid':'none';
+}
+function setPrio(p,btn){
+  S.newPrio=p;
+  document.querySelectorAll('.prio-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function saveTask(){
+  const title=document.getElementById('f-title').value.trim();
+  if(!title){showToast('Введи название');return;}
+  S.tasks.push({
+    id:String(Date.now()),
+    title,
+    type:S.newType,
+    date:S.newType==='timed'?document.getElementById('f-date').value:null,
+    time:S.newType==='timed'?document.getElementById('f-time').value:null,
+    note:document.getElementById('f-note').value.trim(),
+    prio:S.newPrio,
+    done:false,
+    aiGenerated:false,
+  });
+  save();
+  document.getElementById('modal').classList.remove('open');
+  showToast('✅ Задача добавлена');
+  switchTab(S.tab);
+}
+
+// ── TOAST ──
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ── DEMO DATA ──
+function loadDemo(){
+  if(S.tasks.length>0) return;
+  const t=todayStr();
+  S.tasks=[
+    {id:'1',title:'Встреча с командой',type:'timed',date:t,time:'10:00',note:'Zoom call',prio:'high',done:false,aiGenerated:false},
+    {id:'2',title:'Обед',type:'timed',date:t,time:'13:00',note:'',prio:'low',done:false,aiGenerated:false},
+    {id:'3',title:'Code review',type:'timed',date:t,time:'15:30',note:'PR #42',prio:'med',done:false,aiGenerated:true},
+    {id:'4',title:'Ответить на письма',type:'anytime',date:null,time:null,note:'',prio:'med',done:false,aiGenerated:false},
+    {id:'5',title:'Купить продукты',type:'anytime',date:null,time:null,note:'Молоко, хлеб, яйца',prio:'low',done:false,aiGenerated:false},
+  ];
+  save();
+}
+
+// ── INIT ──
+loadDemo();
+initHeader();
+renderToday();
+</script>
+</body>
+</html>
