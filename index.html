@@ -785,33 +785,44 @@ function showToast(msg){
 }
 
 // ── API SYNC ──
-const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
-const API = '';  // same origin
+const API = '';
+let USER_ID = 0;
+
+function getUserId(){
+  try {
+    const tg = window.Telegram?.WebApp;
+    if(tg?.initDataUnsafe?.user?.id) return tg.initDataUnsafe.user.id;
+    if(tg?.initData){
+      const params = new URLSearchParams(tg.initData);
+      const user = JSON.parse(decodeURIComponent(params.get('user')||'{}'));
+      if(user.id) return user.id;
+    }
+  } catch(e){}
+  return 0;
+}
 
 async function syncFromServer(){
   if(!USER_ID) return;
   try {
-    const r = await fetch(`${API}/api/tasks/${USER_ID}`);
+    const r = await fetch(`/api/tasks/${USER_ID}`);
     if(!r.ok) return;
     const data = await r.json();
-    // merge server tasks into state
+    if(data.tasks.length > 0){
+      S.tasks = S.tasks.filter(t=>!String(t.id).startsWith('demo'));
+    }
     data.tasks.forEach(t=>{
       const existing = S.tasks.find(x=>String(x.id)===String(t.id));
       if(!existing){
         S.tasks.push({
-          id: String(t.id),
-          title: t.title,
-          note: t.note||'',
-          type: t.type,
-          date: t.task_date,
-          time: t.task_time,
-          prio: t.prio||'med',
-          done: Boolean(t.done),
-          aiGenerated: Boolean(t.ai_generated),
+          id: String(t.id), title: t.title, note: t.note||'',
+          type: t.type, date: t.task_date, time: t.task_time,
+          prio: t.prio||'med', done: Boolean(t.done), aiGenerated: Boolean(t.ai_generated),
         });
+      } else {
+        existing.done = Boolean(t.done);
+        existing.title = t.title;
       }
     });
-    // sync checklists
     if(data.checklists?.length){
       data.checklists.forEach(cl=>{
         if(!S.lists.find(x=>x.id===cl.id)) S.lists.push(cl);
@@ -863,12 +874,23 @@ function loadDemo(){
 }
 
 // ── INIT ──
-if(!USER_ID) loadDemo();
-initHeader();
-renderToday();
-if(USER_ID){
-  syncFromServer();
-  setInterval(syncFromServer, 15000);
+function init(){
+  USER_ID = getUserId();
+  if(!USER_ID) loadDemo();
+  initHeader();
+  renderToday();
+  if(USER_ID){
+    syncFromServer();
+    setInterval(syncFromServer, 10000);
+  }
+}
+
+// Ждём пока Telegram WebApp полностью загрузится
+if(window.Telegram?.WebApp){
+  window.Telegram.WebApp.ready();
+  setTimeout(init, 300);
+} else {
+  window.addEventListener('load', ()=>setTimeout(init, 300));
 }
 </script>
 </body>
